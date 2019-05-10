@@ -46,22 +46,24 @@ class Report
 
   def output
     if @passes.any?
-      puts 'PASSES'
       @passes.each {|p| puts "  #{p}".green}
       puts
     end
 
     if @fails.any?
-      puts 'FAILS'
       @fails.each {|f| puts "  #{f}".red}
       puts
     end
 
     if @warnings.any?
-      puts 'WARNINGS'
       @warnings.each {|w| puts "  #{w}".yellow}
       puts
     end
+
+    puts "#{@passes.count} PASSES"
+    puts "#{@fails.count} FAILS"
+    puts "#{@warnings.count} WARNINGS"
+    puts
   end
 end
 
