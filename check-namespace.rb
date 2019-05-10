@@ -99,25 +99,23 @@ class Report
   end
 
   def output
-    if @passes.any?
-      @passes.each {|p| puts "  #{p}".green}
-      puts
-    end
-
-    if @fails.any?
-      @fails.each {|f| puts "  #{f}".red}
-      puts
-    end
-
-    if @warnings.any?
-      @warnings.each {|w| puts "  #{w}".yellow}
-      puts
-    end
+    each_msg @passes, :green
+    each_msg @fails, :red
+    each_msg @warnings, :yellow
 
     puts "#{@passes.count} PASSES"
     puts "#{@fails.count} FAILS"
     puts "#{@warnings.count} WARNINGS"
     puts
+  end
+
+  private
+
+  def each_msg(list, colour)
+    list.each do |item|
+      puts item.colorize(colour)
+    end
+    puts if list.any?
   end
 end
 
