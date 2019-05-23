@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth0-credentials-analytics-platform
+  namespace: auth0-inactive-user-check-prod
+type: Opaque
+stringData:
+  domain: https://alpha-analytics-moj.eu.auth0.com
+  client_id: KtPjJDQpbTJyREm6Ph8odc32RZEzaC2l
+  client_secret: PpKTP33AuCmUrNQPZZi6XIYEuU-UwwkxrO5pkdopvKmr29uHRktdqJ7xbsQWhYiG
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth0-credentials-cloud-platform
+  namespace: auth0-inactive-user-check-prod
+type: Opaque
+stringData:
+  domain: https://moj-cloud-platforms-dev.eu.auth0.com
+  client_id: CKP4reBKYPnBEO2KWtT61VyL1CTRIfhZ
+  client_secret: O51LcAuQlHE1S0O36bhySFdhIVF821tqnw8w5PLZ5s2Uf2psrrBqp-NcJNltmWB0
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: check-script
+  namespace: auth0-inactive-user-check-prod
+data:
+  auth0-inactive-users-check: |
+    #!/usr/bin/env python2
+
+    import  os, datetime, requests, string
+    from datetime import date, datetime, timedelta
+
+    def getenv(var):
+        val = os.environ.get(var)
+        if val is None or val == '':
+            print('{} is not set, cannot continue'.format(var))
+            sys.exit(1)
+        return val
+    
+    auth0_domain = getenv('AUTH0_DOMAIN')
+    client_id = getenv('AUTH0_CLIENT_ID')
+    client_secret = getenv('AUTH0_CLIENT_SECRET')
+    
+    def get_token():
+      r = requests.post(
+        '{}/oauth/token'.format(auth0_domain),
+        headers = { 'Content-Type': 'application/json'},
+        json = {
+          'client_id': client_id,
+          'client_secret': client_secret,
+          'audience': '{}/api/v2/'.format(auth0_domain),
+          'grant_type': 'client_credentials'
+        }
+      )
+      r.raise_for_status()
+      return r.json()['access_token']
+    
+    def main():
+      N               = 90
+    
+      date_N_days_ago = datetime.now() - timedelta(days=N)
+      format_date     = date_N_days_ago.strftime("%Y-%m-%d")
+       
+      payload         = {'q':'last_login:[* TO {}]'.format(format_date), 'fields':'email' }
+    
+      url             = "{}/api/v2/users".format(auth0_domain)
+      stats           = requests.get(url, headers={'Authorization': 'Bearer {}'.format(get_token()), 'Accept': 'application/json'}, params=payload).json()
+    
+      report          = "\n".join([x['email'] for x in stats])
+      print report 
+
+      for u in stats:
+        # print u['user_id']
+        r = requests.delete("{}/{}".format(url, u['user_id']), headers={'Authorization': 'Bearer {}'.format(get_token()))
+        # time.sleep(1)
+        print r.status_code
+        print r.text
+        break
+     
+    
+    if __name__ == '__main__':
+        main()
+
+
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: auth0-inactive-user-check-cp
+  name: auth0-inactive-user-check-cp
+  namespace: auth0-inactive-user-check-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth0-inactive-user-check-cp
+  template:
+    metadata:
+      labels:
+        app: auth0-inactive-user-check-cp
+    spec:
+      containers:
+      - name: alpine
+        image: alpine
+        env:
+        - name: AUTH0_DOMAIN
+          valueFrom:
+            secretKeyRef:
+              name: auth0-credentials-cloud-platform
+              key: domain
+        - name: AUTH0_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: auth0-credentials-cloud-platform
+              key: client_id
+        - name: AUTH0_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth0-credentials-cloud-platform
+              key: client_secret 
+        command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache python2 py2-pip ca-certificates
+          pip2 install requests
+          while true; do
+            python2 /usr/local/bin/auth0-inactive-users-check
+            sleep 60
+          done;
+        resources:
+          requests:
+            cpu: 1m
+            memory: 64Mi
+          limits:
+            cpu: 1m
+            memory: 64Mi
+        volumeMounts:
+        - name: check-script
+          mountPath: /usr/local/bin
+          readOnly: true
+      volumes:
+      - name: check-script
+        configMap:
+          name: check-script
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: auth0-inactive-user-check-ap
+  name: auth0-inactive-user-check-ap
+  namespace: auth0-inactive-user-check-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth0-inactive-user-check-ap
+  template:
+    metadata:
+      labels:
+        app: auth0-inactive-user-check-ap
+    spec:
+      containers:
+      - name: alpine
+        image: alpine
+        env:
+        - name: AUTH0_DOMAIN
+          valueFrom:
+            secretKeyRef:
+              name: auth0-credentials-analytics-platform
+              key: domain
+        - name: AUTH0_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: auth0-credentials-analytics-platform
+              key: client_id
+        - name: AUTH0_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth0-credentials-analytics-platform
+              key: client_secret 
+        command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache python2 py2-pip ca-certificates
+          pip2 install requests
+          while true; do
+            python2 /usr/local/bin/auth0-inactive-users-check
+            sleep 60
+          done;
+        resources:
+          requests:
+            cpu: 1m
+            memory: 64Mi
+          limits:
+            cpu: 1m
+            memory: 64Mi
+        volumeMounts:
+        - name: check-script
+          mountPath: /usr/local/bin
+          readOnly: true
+      volumes:
+      - name: check-script
+        configMap:
+          name: check-script
